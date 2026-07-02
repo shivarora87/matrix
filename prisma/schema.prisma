@@ -1,0 +1,88 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// Note that some adapters may set a maximum length for the String type by default, please ensure your strings are long
+// enough when changing adapters.
+// See https://www.prisma.io/docs/orm/reference/prisma-schema-reference#string for more information
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model Job {
+  id           String   @id @default(cuid())
+  shop         String
+  type         String   // "export" | "import"
+  entity       String   // "products" | "customers" | "orders" | "collections"
+  status       String   @default("pending") // "pending" | "processing" | "finished" | "failed"
+  format       String   @default("excel") // "excel" | "csv"
+  total        Int      @default(0)
+  processed    Int      @default(0)
+  exported     Int      @default(0)
+  updated      Int      @default(0)
+  failed       Int      @default(0)
+  skipped      Int      @default(0)
+  durationMs   Int?
+  inputFileUrl  String?
+  outputFileUrl String?
+  errorMessage  String?
+  config        String?  // JSON: { filters?, columns? }
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([shop, createdAt])
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  shop      String
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@unique([shop, key])
+}
+
+model Schedule {
+  id          String    @id @default(cuid())
+  shop        String
+  entity      String
+  format      String    @default("excel")
+  interval    String    // "hourly" | "daily" | "weekly" | "monthly"
+  hour        Int       @default(0)   // 0-23 (UTC)
+  dayOfWeek   Int?      // 0=Sun … 6=Sat  (weekly only)
+  dayOfMonth  Int?      // 1-31           (monthly only)
+  filters     String?   // JSON ExportFilters
+  enabled     Boolean   @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([shop])
+  @@index([enabled, nextRunAt])
+}

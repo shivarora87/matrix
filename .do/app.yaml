@@ -1,0 +1,65 @@
+name: matrixify
+region: lon
+
+services:
+- name: web
+  github:
+    repo: GITHUB_USERNAME/excel-import-export   # ← replace with your GitHub repo
+    branch: main
+    deploy_on_push: true
+  build_command: bash scripts/build-prod.sh
+  run_command: npx prisma migrate deploy && npm run start
+  environment_slug: node-js
+  instance_count: 1
+  instance_size_slug: apps-s-1vcpu-1gb-fixed
+  http_port: 3000
+  health_check:
+    http_path: /
+  envs:
+  # Shopify
+  - key: SHOPIFY_API_KEY
+    scope: RUN_AND_BUILD_TIME
+    value: REPLACE_ME
+  - key: SHOPIFY_API_SECRET
+    scope: RUN_AND_BUILD_TIME
+    value: REPLACE_ME
+  - key: SHOPIFY_APP_URL
+    scope: RUN_AND_BUILD_TIME
+    value: REPLACE_ME   # set after first deploy e.g. https://ymatrixify.ondigitalocean.app
+  - key: SCOPES
+    scope: RUN_AND_BUILD_TIME
+    value: "read_products,write_products,read_customers,write_customers,read_orders,read_inventory,write_inventory,read_draft_orders,write_draft_orders,read_content,write_content,read_discounts,write_discounts"
+  # Database — injected automatically from the db component below
+  - key: DATABASE_URL
+    scope: RUN_AND_BUILD_TIME
+    value: ${db.DATABASE_URL}
+  # DigitalOcean Spaces
+  - key: DO_SPACES_ENDPOINT
+    scope: RUN_TIME
+    value: "https://lon1.digitaloceanspaces.com"
+  - key: DO_SPACES_BUCKET
+    scope: RUN_TIME
+    value: "matrixify"
+  - key: DO_SPACES_KEY
+    scope: RUN_TIME
+    value: REPLACE_ME
+  - key: DO_SPACES_SECRET
+    scope: RUN_TIME
+    value: REPLACE_ME
+  - key: DO_SPACES_REGION
+    scope: RUN_TIME
+    value: "lon1"
+  # Resend
+  - key: RESEND_API_KEY
+    scope: RUN_TIME
+    value: REPLACE_ME
+  - key: RESEND_FROM
+    scope: RUN_TIME
+    value: "notifications@your-verified-domain.com"
+
+databases:
+- name: db
+  engine: PG
+  version: "16"
+  size: db-s-dev-database   # $7/mo — upgrade to db-s-1vcpu-1gb for production traffic
+  num_nodes: 1

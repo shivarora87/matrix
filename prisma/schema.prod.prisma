@@ -1,0 +1,85 @@
+// Production schema — PostgreSQL
+// Used by the DO App Platform build step (copied over schema.prisma before build)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Session {
+  id            String    @id
+  shop          String
+  state         String
+  isOnline      Boolean   @default(false)
+  scope         String?
+  expires       DateTime?
+  accessToken   String
+  userId        BigInt?
+  firstName     String?
+  lastName      String?
+  email         String?
+  accountOwner  Boolean   @default(false)
+  locale        String?
+  collaborator  Boolean?  @default(false)
+  emailVerified Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+model Job {
+  id            String   @id @default(cuid())
+  shop          String
+  type          String
+  entity        String
+  status        String   @default("pending")
+  format        String   @default("excel")
+  total         Int      @default(0)
+  processed     Int      @default(0)
+  exported      Int      @default(0)
+  updated       Int      @default(0)
+  failed        Int      @default(0)
+  skipped       Int      @default(0)
+  durationMs    Int?
+  inputFileUrl  String?
+  outputFileUrl String?
+  errorMessage  String?
+  config        String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([shop, createdAt])
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  shop      String
+  key       String
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@unique([shop, key])
+}
+
+model Schedule {
+  id          String    @id @default(cuid())
+  shop        String
+  entity      String
+  format      String    @default("excel")
+  interval    String
+  hour        Int       @default(0)
+  dayOfWeek   Int?
+  dayOfMonth  Int?
+  filters     String?
+  enabled     Boolean   @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([shop])
+  @@index([enabled, nextRunAt])
+}
