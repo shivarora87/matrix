@@ -51,7 +51,14 @@ export default function JobDetailPage() {
       a.href = url;
       a.download = downloadFilename;
       document.body.appendChild(a);
-      a.click();
+      // Shopify's App Bridge script attaches a document-level click listener
+      // that intercepts <a> clicks to manage in-app navigation. A bubbling
+      // click here gets caught by that listener, which tries to "navigate"
+      // the embedded app to the blob: URL and crashes to a blank page.
+      // Dispatching a non-bubbling click still triggers the native
+      // save-as/download behavior on the element without the event ever
+      // reaching document, so App Bridge never sees it.
+      a.dispatchEvent(new MouseEvent("click", { bubbles: false, cancelable: true }));
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
