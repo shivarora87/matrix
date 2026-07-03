@@ -56,7 +56,13 @@ export async function getPresignedDownloadUrl(filename: string): Promise<string 
   try {
     return await getSignedUrl(
       s3(),
-      new GetObjectCommand({ Bucket: BUCKET!, Key: `exports/${filename}` }),
+      new GetObjectCommand({
+        Bucket: BUCKET!,
+        Key: `exports/${filename}`,
+        // Force the browser to download (attachment) instead of rendering inline,
+        // so the link works even when opened in the same tab inside Shopify's iframe.
+        ResponseContentDisposition: `attachment; filename="${filename}"`,
+      }),
       { expiresIn: 3600 },
     );
   } catch {

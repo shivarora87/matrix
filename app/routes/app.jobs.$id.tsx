@@ -155,8 +155,7 @@ export default function JobDetailPage() {
             </div>
             <a
               href={downloadUrl}
-              target="_blank"
-              rel="noreferrer"
+              download
               style={{
                 display: "inline-block",
                 padding: "8px 18px",
