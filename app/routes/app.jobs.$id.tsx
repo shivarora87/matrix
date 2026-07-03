@@ -98,6 +98,10 @@ export default function JobDetailPage() {
     new Date(d).toLocaleString("en-GB", {
       day: "2-digit", month: "short", year: "numeric",
       hour: "2-digit", minute: "2-digit", second: "2-digit",
+      // Pinned so server (UTC container) and browser (user TZ) render the
+      // SAME text — otherwise SSR/client output differs and React hydration
+      // fails, blanking the page.
+      timeZone: "Europe/London",
     });
 
   type BadgeTone = "info" | "success" | "critical" | "warning" | "neutral" | "caution";
@@ -261,16 +265,15 @@ function capitalize(str: string) {
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
-// Without this, a client-side render crash on this route falls through to the
-// root boundary (which expects Response-shaped errors) and can render blank.
-// This makes any crash visible with the actual error message.
+// Route-level boundary so a client-side crash here shows a message instead
+// of unmounting to a blank page. Thrown Responses MUST be delegated to
+// boundary.error() — shopify-app-react-router throws a 200 Response whose
+// body is the App Bridge session-token "bounce page" as part of normal auth
+// flow, and boundary.error() renders that HTML so its script can run.
 export function ErrorBoundary() {
   const error = useRouteError();
-  const message = isRouteErrorResponse(error)
-    ? `${error.status} ${error.statusText}`
-    : error instanceof Error
-      ? error.message
-      : "Unknown error";
+  if (isRouteErrorResponse(error)) return boundary.error(error);
+  const message = error instanceof Error ? error.message : "Unknown error";
   return (
     <s-page heading="Job">
       <s-section heading="Something went wrong">

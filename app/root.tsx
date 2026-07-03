@@ -1,4 +1,5 @@
 import { Links, Meta, Outlet, Scripts, ScrollRestoration, useRouteError, isRouteErrorResponse } from "react-router";
+import { boundary } from "@shopify/shopify-app-react-router/server";
 
 function Document({ children }: { children: React.ReactNode }) {
   return (
@@ -35,13 +36,19 @@ export default function App() {
 // (including a failed hydration-mismatch recovery, which re-renders the
 // whole app from the root) has nothing above it to catch it, and React
 // unmounts everything — a permanent blank page instead of a visible error.
+//
+// IMPORTANT: thrown Responses must be delegated to boundary.error() —
+// shopify-app-react-router throws a 200 Response whose body is an App
+// Bridge "bounce page" (a script that fetches a fresh session token and
+// reloads) as part of NORMAL auth flow. boundary.error() renders that
+// HTML so the script executes; rendering a generic error message instead
+// breaks authentication entirely.
 export function ErrorBoundary() {
   const error = useRouteError();
-  const message = isRouteErrorResponse(error)
-    ? `${error.status} ${error.statusText}`
-    : error instanceof Error
-      ? error.message
-      : "Unknown error";
+  if (isRouteErrorResponse(error)) {
+    return <Document>{boundary.error(error)}</Document>;
+  }
+  const message = error instanceof Error ? error.message : "Unknown error";
   return (
     <Document>
       <div style={{ padding: "24px", fontFamily: "sans-serif" }}>

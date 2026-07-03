@@ -244,6 +244,9 @@ export default function HomePage() {
     new Date(d).toLocaleString("en-GB", {
       day: "2-digit", month: "short", year: "numeric",
       hour: "2-digit", minute: "2-digit",
+      // Pinned so server (UTC) and browser (user TZ) render identical text —
+      // a mismatch here breaks React hydration and blanks the page.
+      timeZone: "Europe/London",
     });
 
   const inputStyle = {
