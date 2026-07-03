@@ -5,7 +5,6 @@ import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
-import { getPresignedDownloadUrl } from "../storage.server";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -14,22 +13,47 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   });
   if (!job) throw new Response("Job not found", { status: 404 });
 
-  let downloadUrl: string | null = null;
-  if (job.outputFileUrl && job.status === "finished") {
-    const filename = path.basename(job.outputFileUrl);
-    downloadUrl = await getPresignedDownloadUrl(filename);
-    if (!downloadUrl) downloadUrl = job.outputFileUrl;
-  }
+  const downloadFilename =
+    job.outputFileUrl && job.status === "finished"
+      ? path.basename(job.outputFileUrl)
+      : null;
 
-  return { job, downloadUrl };
+  return { job, downloadFilename };
 };
 
 export default function JobDetailPage() {
-  const { job: initialJob, downloadUrl } = useLoaderData<typeof loader>();
+  const { job: initialJob, downloadFilename } = useLoaderData<typeof loader>();
   const [job, setJob] = useState(initialJob);
+  const [downloading, setDownloading] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isActive = job.status === "pending" || job.status === "processing";
+
+  // Download via authenticated fetch → blob so it works inside Shopify's
+  // sandboxed iframe (a plain link would navigate the iframe cross-origin and
+  // lose the App Bridge session token, rendering a blank page).
+  const handleDownload = async () => {
+    if (!downloadFilename || downloading) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(`/api/download/${encodeURIComponent(downloadFilename)}`);
+      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = downloadFilename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      // eslint-disable-next-line no-alert
+      alert(err instanceof Error ? err.message : "Download failed");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   useEffect(() => {
     if (!isActive) return;
@@ -139,7 +163,7 @@ export default function JobDetailPage() {
       </s-section>
 
       {/* Download */}
-      {downloadUrl && job.status === "finished" && (
+      {downloadFilename && job.status === "finished" && (
         <s-section heading="Output File">
           <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
             <span style={{ fontSize: "24px" }}>📊</span>
@@ -153,22 +177,25 @@ export default function JobDetailPage() {
                   : "Your exported data is ready for download."}
               </s-paragraph>
             </div>
-            <a
-              href={downloadUrl}
-              download
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
               style={{
                 display: "inline-block",
                 padding: "8px 18px",
                 background: "#005bd3",
                 color: "#fff",
+                border: "none",
                 borderRadius: "6px",
                 textDecoration: "none",
                 fontSize: "14px",
                 fontWeight: 600,
+                cursor: downloading ? "wait" : "pointer",
+                opacity: downloading ? 0.7 : 1,
               }}
             >
-              Download
-            </a>
+              {downloading ? "Downloading…" : "Download"}
+            </button>
           </div>
         </s-section>
       )}

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import type { ActionFunctionArgs, HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useFetcher, useLoaderData } from "react-router";
+import { useFetcher, useLoaderData, useNavigate } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import { PLANS, PLAN_LIMITS } from "../plans";
@@ -156,6 +156,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
 export default function HomePage() {
   const { recentJobs, currentPlan, planLimits } = useLoaderData<typeof loader>();
+  const navigate = useNavigate();
   const exportFetcher = useFetcher<typeof action>();
   const importFetcher = useFetcher<typeof action>();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -183,14 +184,14 @@ export default function HomePage() {
     const data = exportFetcher.data;
     if (data && "jobId" in data) {
       setShowExportForm(false);
-      window.location.href = `/app/jobs/${data.jobId}`;
+      navigate(`/app/jobs/${data.jobId}`);
     }
   }, [exportFetcher.data]);
 
   useEffect(() => {
     const data = importFetcher.data;
     if (data && "jobId" in data) {
-      window.location.href = `/app/jobs/${data.jobId}`;
+      navigate(`/app/jobs/${data.jobId}`);
     }
   }, [importFetcher.data]);
 

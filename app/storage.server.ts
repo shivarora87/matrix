@@ -1,5 +1,4 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import path from "path";
 import fs from "fs/promises";
 
@@ -51,50 +50,37 @@ export async function deleteFile(filename: string): Promise<void> {
   }
 }
 
-export async function getPresignedDownloadUrl(filename: string): Promise<string | null> {
-  if (!spacesEnabled) return null;
-  try {
-    return await getSignedUrl(
-      s3(),
-      new GetObjectCommand({
-        Bucket: BUCKET!,
-        Key: `exports/${filename}`,
-        // Force the browser to download (attachment) instead of rendering inline,
-        // so the link works even when opened in the same tab inside Shopify's iframe.
-        ResponseContentDisposition: `attachment; filename="${filename}"`,
-      }),
-      { expiresIn: 3600 },
-    );
-  } catch {
-    return null;
-  }
-}
-
 export async function getDownloadResponse(safeFilename: string): Promise<Response | null> {
+  const isCSV = safeFilename.endsWith(".csv");
+  const contentType = isCSV
+    ? "text/csv"
+    : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+  let bytes: Uint8Array;
   if (spacesEnabled) {
+    // Stream the object through the app's own origin (rather than redirecting to a
+    // cross-origin presigned URL) so the download works inside Shopify's iframe.
     try {
-      const url = await getSignedUrl(
-        s3(),
+      const obj = await s3().send(
         new GetObjectCommand({ Bucket: BUCKET!, Key: `exports/${safeFilename}` }),
-        { expiresIn: 3600 },
       );
-      return new Response(null, { status: 302, headers: { Location: url } });
+      bytes = await obj.Body!.transformToByteArray();
+    } catch {
+      return null;
+    }
+  } else {
+    try {
+      bytes = new Uint8Array(await fs.readFile(path.join(UPLOADS_DIR, safeFilename)));
     } catch {
       return null;
     }
   }
-  const filePath = path.join(UPLOADS_DIR, safeFilename);
-  try {
-    const buffer = await fs.readFile(filePath);
-    const isCSV = safeFilename.endsWith(".csv");
-    return new Response(buffer, {
-      headers: {
-        "Content-Type": isCSV ? "text/csv" : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "Content-Disposition": `attachment; filename="${safeFilename}"`,
-        "Content-Length": String(buffer.byteLength),
-      },
-    });
-  } catch {
-    return null;
-  }
+
+  return new Response(new Blob([bytes as unknown as BlobPart]), {
+    headers: {
+      "Content-Type": contentType,
+      "Content-Disposition": `attachment; filename="${safeFilename}"`,
+      "Content-Length": String(bytes.byteLength),
+    },
+  });
 }
