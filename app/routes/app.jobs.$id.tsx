@@ -25,19 +25,26 @@ export default function JobDetailPage() {
   const { job: initialJob, downloadFilename } = useLoaderData<typeof loader>();
   const [job, setJob] = useState(initialJob);
   const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isActive = job.status === "pending" || job.status === "processing";
 
   // Download via authenticated fetch → blob so it works inside Shopify's
   // sandboxed iframe (a plain link would navigate the iframe cross-origin and
-  // lose the App Bridge session token, rendering a blank page).
+  // lose the App Bridge session token, rendering a blank page). Errors are
+  // shown inline — alert()/confirm() are silently blocked by Chrome inside
+  // cross-origin iframes, so they'd otherwise fail with zero visible feedback.
   const handleDownload = async () => {
     if (!downloadFilename || downloading) return;
     setDownloading(true);
+    setDownloadError(null);
     try {
       const res = await fetch(`/api/download/${encodeURIComponent(downloadFilename)}`);
-      if (!res.ok) throw new Error(`Download failed (${res.status})`);
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => "");
+        throw new Error(`Download failed: HTTP ${res.status} ${res.statusText}${bodyText ? ` — ${bodyText.slice(0, 200)}` : ""}`);
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -48,8 +55,7 @@ export default function JobDetailPage() {
       a.remove();
       URL.revokeObjectURL(url);
     } catch (err) {
-      // eslint-disable-next-line no-alert
-      alert(err instanceof Error ? err.message : "Download failed");
+      setDownloadError(err instanceof Error ? err.message : "Download failed (unknown error)");
     } finally {
       setDownloading(false);
     }
@@ -197,6 +203,14 @@ export default function JobDetailPage() {
               {downloading ? "Downloading…" : "Download"}
             </button>
           </div>
+          {downloadError && (
+            <div style={{ marginTop: "12px", padding: "12px", background: "#FFF4F4",
+              borderRadius: "6px", border: "1px solid #FEAD9A" }}>
+              <s-paragraph>
+                <strong>Download error:</strong> {downloadError}
+              </s-paragraph>
+            </div>
+          )}
         </s-section>
       )}
     </s-page>
