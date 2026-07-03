@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
+import path from "path";
 import { useLoaderData } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
+import { getPresignedDownloadUrl } from "../storage.server";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -11,11 +13,19 @@ export const loader = async ({ request, params }: LoaderFunctionArgs) => {
     where: { id: params.id, shop: session.shop },
   });
   if (!job) throw new Response("Job not found", { status: 404 });
-  return { job };
+
+  let downloadUrl: string | null = null;
+  if (job.outputFileUrl && job.status === "finished") {
+    const filename = path.basename(job.outputFileUrl);
+    downloadUrl = await getPresignedDownloadUrl(filename);
+    if (!downloadUrl) downloadUrl = job.outputFileUrl;
+  }
+
+  return { job, downloadUrl };
 };
 
 export default function JobDetailPage() {
-  const { job: initialJob } = useLoaderData<typeof loader>();
+  const { job: initialJob, downloadUrl } = useLoaderData<typeof loader>();
   const [job, setJob] = useState(initialJob);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -129,7 +139,7 @@ export default function JobDetailPage() {
       </s-section>
 
       {/* Download */}
-      {job.outputFileUrl && job.status === "finished" && (
+      {downloadUrl && job.status === "finished" && (
         <s-section heading="Output File">
           <div style={{ display: "flex", gap: "16px", alignItems: "center" }}>
             <span style={{ fontSize: "24px" }}>📊</span>
@@ -144,8 +154,9 @@ export default function JobDetailPage() {
               </s-paragraph>
             </div>
             <a
-              href={job.outputFileUrl}
-              download
+              href={downloadUrl}
+              target="_blank"
+              rel="noreferrer"
               style={{
                 display: "inline-block",
                 padding: "8px 18px",

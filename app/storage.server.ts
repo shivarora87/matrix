@@ -20,6 +20,9 @@ function s3(): S3Client {
       endpoint: ENDPOINT!,
       region: REGION,
       credentials: { accessKeyId: KEY!, secretAccessKey: SECRET! },
+      // DO Spaces doesn't support the CRC32 checksums AWS SDK v3 sends by default
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
   }
   return _client;
@@ -32,7 +35,6 @@ export async function saveFile(buffer: Buffer, filename: string, contentType: st
       Key: `exports/${filename}`,
       Body: buffer,
       ContentType: contentType,
-      ACL: "private",
     }));
   } else {
     await fs.mkdir(UPLOADS_DIR, { recursive: true });
@@ -46,6 +48,19 @@ export async function deleteFile(filename: string): Promise<void> {
     await s3().send(new DeleteObjectCommand({ Bucket: BUCKET!, Key: `exports/${filename}` })).catch(() => {});
   } else {
     await fs.unlink(path.join(UPLOADS_DIR, filename)).catch(() => {});
+  }
+}
+
+export async function getPresignedDownloadUrl(filename: string): Promise<string | null> {
+  if (!spacesEnabled) return null;
+  try {
+    return await getSignedUrl(
+      s3(),
+      new GetObjectCommand({ Bucket: BUCKET!, Key: `exports/${filename}` }),
+      { expiresIn: 3600 },
+    );
+  } catch {
+    return null;
   }
 }
 
