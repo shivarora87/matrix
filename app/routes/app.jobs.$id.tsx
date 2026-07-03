@@ -113,9 +113,16 @@ export default function JobDetailPage() {
 
   return (
     <s-page heading={`${capitalize(job.entity)} ${capitalize(job.type)} #${job.id.slice(-8)}`}>
-      <a slot="primary-action" href="/app/jobs" style={{ textDecoration: "none", color: "#005bd3", fontSize: "14px" }}>
-        ← All Jobs
-      </a>
+      {/* Plain child, not a slotted one — Polaris's <s-page> restructures
+          slot="primary-action" children into its shadow DOM once the custom
+          element upgrades client-side, which can produce a DOM shape that
+          doesn't match the flat server-rendered HTML and trigger a React
+          hydration mismatch. */}
+      <div style={{ marginBottom: "12px" }}>
+        <a href="/app/jobs" style={{ textDecoration: "none", color: "#005bd3", fontSize: "14px" }}>
+          ← All Jobs
+        </a>
+      </div>
 
       {/* Status Card */}
       <s-section heading="Status">
