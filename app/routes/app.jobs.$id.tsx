@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
 import path from "path";
-import { useLoaderData } from "react-router";
+import { useLoaderData, useRouteError, isRouteErrorResponse } from "react-router";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { authenticate } from "../shopify.server";
 import prisma from "../db.server";
@@ -247,6 +247,29 @@ function Stat({
 
 function capitalize(str: string) {
   return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+// Without this, a client-side render crash on this route falls through to the
+// root boundary (which expects Response-shaped errors) and can render blank.
+// This makes any crash visible with the actual error message.
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const message = isRouteErrorResponse(error)
+    ? `${error.status} ${error.statusText}`
+    : error instanceof Error
+      ? error.message
+      : "Unknown error";
+  return (
+    <s-page heading="Job">
+      <s-section heading="Something went wrong">
+        <div style={{ padding: "12px", background: "#FFF4F4", borderRadius: "6px", border: "1px solid #FEAD9A" }}>
+          <s-paragraph>
+            <strong>Error:</strong> {message}
+          </s-paragraph>
+        </div>
+      </s-section>
+    </s-page>
+  );
 }
 
 export const headers: HeadersFunction = (headersArgs) => {
