@@ -30,15 +30,21 @@ export default function JobDetailPage() {
 
   const isActive = job.status === "pending" || job.status === "processing";
 
-  // Download via authenticated fetch → blob so it works inside Shopify's
-  // sandboxed iframe (a plain link would navigate the iframe cross-origin and
-  // lose the App Bridge session token, rendering a blank page). Errors are
-  // shown inline — alert()/confirm() are silently blocked by Chrome inside
-  // cross-origin iframes, so they'd otherwise fail with zero visible feedback.
+  // Download via authenticated fetch → blob, opened in a brand-new browser
+  // tab. Any click on an <a> inside this iframe — even a synthetic one —
+  // gets caught by Shopify App Bridge's own click handling (it manages
+  // in-app navigation for anchor clicks), which then tries to "navigate"
+  // to the blob: URL and crashes the embedded app to a blank page.
+  // window.open() is a JS API call, not a DOM click event, so App Bridge's
+  // listener never sees it — it runs entirely outside the iframe's event
+  // system. The tab must be opened synchronously (before any await) so the
+  // browser still associates it with the click gesture and doesn't block it
+  // as a popup; we point it at the real blob only once the fetch resolves.
   const handleDownload = async () => {
     if (!downloadFilename || downloading) return;
     setDownloading(true);
     setDownloadError(null);
+    const popup = window.open("", "_blank");
     try {
       const res = await fetch(`/api/download/${encodeURIComponent(downloadFilename)}`);
       if (!res.ok) {
@@ -47,21 +53,13 @@ export default function JobDetailPage() {
       }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = downloadFilename;
-      document.body.appendChild(a);
-      // Shopify's App Bridge script attaches a document-level click listener
-      // that intercepts <a> clicks to manage in-app navigation. A bubbling
-      // click here gets caught by that listener, which tries to "navigate"
-      // the embedded app to the blob: URL and crashes to a blank page.
-      // Dispatching a non-bubbling click still triggers the native
-      // save-as/download behavior on the element without the event ever
-      // reaching document, so App Bridge never sees it.
-      a.dispatchEvent(new MouseEvent("click", { bubbles: false, cancelable: true }));
-      a.remove();
-      URL.revokeObjectURL(url);
+      if (popup) {
+        popup.location.href = url;
+      } else {
+        throw new Error("Your browser blocked the download tab — please allow pop-ups for this site and try again.");
+      }
     } catch (err) {
+      popup?.close();
       setDownloadError(err instanceof Error ? err.message : "Download failed (unknown error)");
     } finally {
       setDownloading(false);
