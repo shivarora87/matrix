@@ -85,7 +85,10 @@ export default function JobDetailPage() {
         const res = await fetch(`/api/jobs/${job.id}/status`);
         if (res.ok) {
           const updated = await res.json();
-          setJob(updated);
+          // The status endpoint returns only a subset of fields (no entity/
+          // type/format/createdAt) — MERGE it into the existing job instead
+          // of replacing it, or capitalize(job.entity) crashes on undefined.
+          setJob((prev) => ({ ...prev, ...updated }));
           if (updated.status !== "pending" && updated.status !== "processing") {
             clearInterval(intervalRef.current!);
           }
@@ -272,7 +275,8 @@ function Stat({
   );
 }
 
-function capitalize(str: string) {
+function capitalize(str: string | null | undefined) {
+  if (!str) return "";
   return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
