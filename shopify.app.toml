@@ -1,12 +1,12 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "14ad4c0c55f1aaa04e18f0ed885a6857"
-application_url = "https://example.com"
+application_url = "https://matrixify-jatua.ondigitalocean.app"
 embedded = true
 name = "excel-import-export"
 
 [access_scopes]
-scopes = "read_products,write_products,read_customers,write_customers,read_orders,read_inventory,write_inventory,read_draft_orders"
+scopes = "read_products,write_products,read_customers,write_customers,read_orders,write_orders,read_inventory,write_inventory,read_locations,read_draft_orders,write_draft_orders,read_content,write_content,read_discounts,write_discounts,read_online_store_navigation,write_online_store_navigation"
 
 [webhooks]
 api_version = "2026-10"
@@ -20,8 +20,7 @@ api_version = "2026-10"
   topics = [ "app/scopes_update" ]
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://matrixify-jatua.ondigitalocean.app/auth/callback" ]
 
 [build]
-include_config_on_deploy = true
 automatically_update_urls_on_dev = true

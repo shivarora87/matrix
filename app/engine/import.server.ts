@@ -275,27 +275,44 @@ async function importProductGroup(
         sku: (r["Variant SKU"] ?? "").trim(),
         price: (r["Variant Price"] ?? "0.00").trim(),
         compareAtPrice: (r["Variant Compare At Price"] ?? "").trim() || null,
-        weight: isNaN(w) ? undefined : w,
-        weightUnit: (r["Variant Weight Unit"] ?? "KILOGRAMS").trim().toUpperCase(),
         barcode: (r["Variant Barcode"] ?? "").trim() || null,
-        requiresShipping: (r["Variant Requires Shipping"] ?? "true").toLowerCase() !== "false",
         taxable: (r["Variant Taxable"] ?? "true").toLowerCase() !== "false",
-        ...(optVals.length > 0 ? { options: optVals } : {}),
+        inventoryItem: {
+          requiresShipping: (r["Variant Requires Shipping"] ?? "true").toLowerCase() !== "false",
+          ...(isNaN(w) ? {} : { measurement: { weight: {
+            value: w,
+            unit: (r["Variant Weight Unit"] ?? "KILOGRAMS").trim().toUpperCase(),
+          } } }),
+        },
+        ...(optVals.length > 0 ? {
+          optionValues: optVals.map((value, i) => ({ optionName: optionNames[i], name: value })),
+        } : {}),
       };
     });
 
+  // Distinct ordered values per option position, used to seed productOptions on create
+  const optionValueSets: string[][] = optionNames.map(() => []);
+  for (const v of variantInputs) {
+    const ov = (v.optionValues as Array<{ optionName: string; name: string }> | undefined) ?? [];
+    ov.forEach((o, i) => {
+      if (!optionValueSets[i].includes(o.name)) optionValueSets[i].push(o.name);
+    });
+  }
+  const productOptions = optionNames.map((name, i) => ({
+    name,
+    values: optionValueSets[i].map((value) => ({ name: value })),
+  }));
+
   const imageSrcs = (firstRow["Image Src"] ?? "").split(";").map((s) => s.trim()).filter(Boolean);
 
-  const productFields: Record<string, unknown> = {
+  const productFieldsBase: Record<string, unknown> = {
     handle,
     title: (firstRow["Title"] ?? "").trim(),
-    bodyHtml: (firstRow["Body HTML"] ?? "").trim(),
+    descriptionHtml: (firstRow["Body HTML"] ?? "").trim(),
     vendor: (firstRow["Vendor"] ?? "").trim(),
     productType: (firstRow["Type"] ?? "").trim(),
     tags: (firstRow["Tags"] ?? "").split(",").map((t) => t.trim()).filter(Boolean),
     status: (firstRow["Status"] ?? "ACTIVE").trim().toUpperCase(),
-    ...(optionNames.length > 0 ? { options: optionNames } : {}),
-    ...(variantInputs.length > 0 ? { variants: variantInputs } : {}),
     seo: {
       title: (firstRow["SEO Title"] ?? "").trim(),
       description: (firstRow["SEO Description"] ?? "").trim(),
@@ -345,21 +362,52 @@ async function importProductGroup(
 
   if (!existing || command === "REPLACE") {
     const createData = await gql(graphql,
-      `mutation ProductCreate($input: ProductInput!) {
-        productCreate(input: $input) { product { id } userErrors { field message } }
+      `mutation ProductCreate($product: ProductCreateInput!) {
+        productCreate(product: $product) {
+          product { id variants(first: 1) { edges { node { id } } } }
+          userErrors { field message }
+        }
       }`,
-      { input: productFields }, "productCreate");
-    const productId = ((createData.productCreate as Record<string, unknown>)?.product as Record<string, string>)?.id;
+      { product: { ...productFieldsBase, ...(productOptions.length > 0 ? { productOptions } : {}) } },
+      "productCreate");
+    const createdProduct = (createData.productCreate as Record<string, unknown>)?.product as
+      { id: string; variants: { edges: Array<{ node: { id: string } }> } } | undefined;
+    const productId = createdProduct?.id;
+
+    if (productId && variantInputs.length > 0) {
+      if (productOptions.length > 0) {
+        await gql(graphql,
+          `mutation BulkCreateVariants($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+            productVariantsBulkCreate(productId: $productId, variants: $variants, strategy: REMOVE_STANDALONE_VARIANT) {
+              productVariants { id } userErrors { field message }
+            }
+          }`,
+          { productId, variants: variantInputs }, "productVariantsBulkCreate");
+      } else {
+        // Simple product: productCreate already made the default variant, just update its fields
+        const defaultVariantId = createdProduct?.variants.edges[0]?.node.id;
+        if (defaultVariantId) {
+          await gql(graphql,
+            `mutation BulkUpdateVariants($productId: ID!, $variants: [ProductVariantsBulkInput!]!) {
+              productVariantsBulkUpdate(productId: $productId, variants: $variants) {
+                productVariants { id } userErrors { field message }
+              }
+            }`,
+            { productId, variants: [{ ...variantInputs[0], id: defaultVariantId }] }, "productVariantsBulkUpdate");
+        }
+      }
+    }
+
     if (productId && imageSrcs.length > 0) await createProductMedia(productId, imageSrcs, graphql);
     return "created";
   }
 
   // Update
   const updateData = await gql(graphql,
-    `mutation ProductUpdate($input: ProductInput!) {
-      productUpdate(input: $input) { product { id } userErrors { field message } }
+    `mutation ProductUpdate($product: ProductUpdateInput!) {
+      productUpdate(product: $product) { product { id } userErrors { field message } }
     }`,
-    { input: { ...productFields, id: existing.id } }, "productUpdate");
+    { product: { ...productFieldsBase, id: existing.id } }, "productUpdate");
   const updatedId = ((updateData.productUpdate as Record<string, unknown>)?.product as Record<string, string>)?.id;
 
   if (variantInputs.length > 0 && updatedId) {
@@ -848,16 +896,16 @@ async function importDiscount(row: Record<string, string>, graphql: GraphQLFn, c
       }`,
       { input: { title, code, ...(startsAt ? { startsAt } : {}), ...(endsAt ? { endsAt } : {}),
         ...(usageLimit !== null ? { usageLimit } : {}), customerSelection: { all: true },
-        minimumRequirement: { subTotal: { greaterThanOrEqualToSubtotal: "0" } } } },
+        minimumRequirement: { subtotal: { greaterThanOrEqualToSubtotal: "0" } } } },
       "discountCodeFreeShippingCreate");
   } else if (type === "percentage") {
     await gql(graphql,
-      `mutation DiscountPercentage($input: DiscountCodePercentageInput!) {
-        discountCodePercentageCreate(basicCodeDiscount: $input) {
+      `mutation DiscountPercentage($input: DiscountCodeBasicInput!) {
+        discountCodeBasicCreate(basicCodeDiscount: $input) {
           codeDiscountNode { id } userErrors { field message }
         }
       }`,
-      { input: baseInput }, "discountCodePercentageCreate");
+      { input: baseInput }, "discountCodeBasicCreate");
   } else {
     // fixed amount
     await gql(graphql,
@@ -931,7 +979,7 @@ async function importBlogPost(row: Record<string, string>, graphql: GraphQLFn, c
   if (!title) throw new Error("Title is required");
   if (!blogHandle) throw new Error("Blog Handle is required");
 
-  const contentHtml = (row["Content HTML"] ?? "").trim();
+  const body = (row["Content HTML"] ?? "").trim();
   const authorName = (row["Author"] ?? "").trim();
   const tags = (row["Tags"] ?? "").split(",").map((t) => t.trim()).filter(Boolean);
   const isPublished = (row["Published"] ?? "true").toLowerCase() !== "false";
@@ -975,7 +1023,7 @@ async function importBlogPost(row: Record<string, string>, graphql: GraphQLFn, c
   if (command === "UPDATE" && !existingId) throw new Error(`Article "${articleHandle}" not found`);
 
   const articleInput: Record<string, unknown> = {
-    title, contentHtml, isPublished, tags,
+    title, body, isPublished, tags,
     ...(authorName ? { author: { name: authorName } } : {}),
   };
 
@@ -990,7 +1038,7 @@ async function importBlogPost(row: Record<string, string>, graphql: GraphQLFn, c
       `mutation ArticleCreate($article: ArticleCreateInput!) {
         articleCreate(article: $article) { article { id } userErrors { field message } }
       }`,
-      { article: { ...articleInput, blog: { id: blogId },
+      { article: { ...articleInput, blogId,
         ...(articleHandle ? { handle: articleHandle } : {}) } }, "articleCreate");
   }
 }

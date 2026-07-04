@@ -135,6 +135,7 @@ export async function runExportJob(
     sendJobNotification(shop, "export", job.entity, rows.length).catch(() => {});
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Unknown error";
+    console.error(`[export] Job ${jobId} failed:`, error);
     await prisma.job.update({
       where: { id: jobId },
       data: {
@@ -234,9 +235,11 @@ async function fetchProducts(
             variants(first: 100) {
               edges {
                 node {
-                  sku price compareAtPrice barcode weight weightUnit
-                  requiresShipping taxable inventoryQuantity
-                  fulfillmentService { handle }
+                  sku price compareAtPrice barcode taxable inventoryQuantity
+                  inventoryItem {
+                    requiresShipping
+                    measurement { weight { value unit } }
+                  }
                   selectedOptions { name value }
                 }
               }
@@ -270,7 +273,12 @@ async function fetchProducts(
         } else {
           variants.forEach(({ node: v }, i) => {
             const opts = (v.selectedOptions ?? []) as Array<{ name: string; value: string }>;
-            const fulfillment = ((v.fulfillmentService as Record<string, string>)?.handle) ?? "manual";
+            const inventoryItem = (v.inventoryItem as Record<string, unknown>) ?? {};
+            const weightInfo = ((inventoryItem.measurement as Record<string, unknown>)?.weight as Record<string, unknown>) ?? {};
+            const weight = weightInfo.value ?? "";
+            const weightUnit = weightInfo.unit ?? "KILOGRAMS";
+            const requiresShipping = inventoryItem.requiresShipping ?? true;
+            const fulfillment = "manual";
             if (i === 0) {
               rows.push(["MERGE", p.handle, p.title, p.descriptionHtml, p.vendor, p.productType,
                 tagsStr, p.status, p.publishedAt ? "true" : "false",
@@ -279,15 +287,15 @@ async function fetchProducts(
                 options[1]?.name ?? "", opts[1]?.value ?? "",
                 options[2]?.name ?? "", opts[2]?.value ?? "",
                 v.sku ?? "", v.price ?? "", v.compareAtPrice ?? "",
-                v.weight ?? "", v.weightUnit ?? "KILOGRAMS", v.inventoryQuantity ?? 0,
-                v.barcode ?? "", v.requiresShipping ?? true, v.taxable ?? true, fulfillment,
+                weight, weightUnit, v.inventoryQuantity ?? 0,
+                v.barcode ?? "", requiresShipping, v.taxable ?? true, fulfillment,
                 imgSrcs.join("; "), imgAlts[0] ?? ""]);
             } else {
               rows.push(["", "", "", "", "", "", "", "", "", "", "",
                 "", opts[0]?.value ?? "", "", opts[1]?.value ?? "", "", opts[2]?.value ?? "",
                 v.sku ?? "", v.price ?? "", v.compareAtPrice ?? "",
-                v.weight ?? "", v.weightUnit ?? "KILOGRAMS", v.inventoryQuantity ?? 0,
-                v.barcode ?? "", v.requiresShipping ?? true, v.taxable ?? true, fulfillment, "", ""]);
+                weight, weightUnit, v.inventoryQuantity ?? 0,
+                v.barcode ?? "", requiresShipping, v.taxable ?? true, fulfillment, "", ""]);
             }
           });
         }
@@ -355,7 +363,7 @@ async function fetchOrders(
       orders(first: 250, after: $cursor, query: $query) {
         edges {
           node {
-            name email financialStatus fulfillmentStatus currencyCode tags createdAt
+            name email displayFinancialStatus displayFulfillmentStatus currencyCode tags createdAt
             totalPriceSet { shopMoney { amount } }
             subtotalPriceSet { shopMoney { amount } }
             totalTaxSet { shopMoney { amount } }
@@ -380,7 +388,7 @@ async function fetchOrders(
         const total = ((o.totalPriceSet as Record<string, unknown>)?.shopMoney as Record<string, string>)?.amount ?? "0";
         const sub = ((o.subtotalPriceSet as Record<string, unknown>)?.shopMoney as Record<string, string>)?.amount ?? "0";
         const tax = ((o.totalTaxSet as Record<string, unknown>)?.shopMoney as Record<string, string>)?.amount ?? "0";
-        rows.push(["MERGE", o.name, o.email, o.financialStatus, o.fulfillmentStatus,
+        rows.push(["MERGE", o.name, o.email, o.displayFinancialStatus, o.displayFulfillmentStatus,
           o.currencyCode, total, sub, tax, lineStr,
           Array.isArray(o.tags) ? (o.tags as string[]).join(", ") : "", o.createdAt]);
       }
@@ -544,12 +552,12 @@ async function fetchDraftOrders(
       draftOrders(first: 250, after: $cursor) {
         edges {
           node {
-            name status email note tags totalPrice createdAt
+            name status email note2 tags totalPrice createdAt
             lineItems(first: 50) {
               edges {
                 node {
                   title quantity
-                  originalUnitPrice { amount }
+                  originalUnitPrice
                   variant { sku product { handle } }
                 }
               }
@@ -566,13 +574,13 @@ async function fetchDraftOrders(
       for (const { node: d } of edges) {
         const lis = ((d.lineItems as Record<string, unknown>)?.edges ?? []) as Array<{ node: Record<string, unknown> }>;
         const lineStr = lis.map(({ node: li }) => {
-          const price = ((li.originalUnitPrice as Record<string, string>)?.amount) ?? "0";
+          const price = (li.originalUnitPrice as string) ?? "0";
           const variant = li.variant as Record<string, unknown> | null;
           const sku = variant?.sku ?? "";
           const handle = ((variant?.product as Record<string, unknown>)?.handle) ?? "";
           return `${handle}|${sku} x${li.quantity} @ ${price}`;
         }).join("; ");
-        rows.push(["MERGE", d.name, d.status, d.email ?? "", d.note ?? "",
+        rows.push(["MERGE", d.name, d.status, d.email ?? "", d.note2 ?? "",
           Array.isArray(d.tags) ? (d.tags as string[]).join(", ") : "",
           d.totalPrice ?? "", lineStr, d.createdAt]);
       }
@@ -611,11 +619,6 @@ async function fetchDiscounts(
                   }
                 }
               }
-              ... on DiscountCodePercentage {
-                title status startsAt endsAt usageLimit
-                codes(first: 1) { edges { node { code } } }
-                customerGets { value { ... on DiscountPercentage { percentage } } }
-              }
               ... on DiscountCodeFreeShipping {
                 title status startsAt endsAt usageLimit
                 codes(first: 1) { edges { node { code } } }
@@ -647,9 +650,6 @@ async function fetchDiscounts(
             type = "percentage";
             value = String((val.percentage ?? "") as string);
           }
-        } else if (typeName === "DiscountCodePercentage") {
-          type = "percentage";
-          value = String((val.percentage ?? "") as string);
         }
         rows.push(["MERGE", d.title, code, type, value,
           d.usageLimit ?? "", d.startsAt ?? "", d.endsAt ?? "", d.status ?? ""]);
@@ -715,7 +715,7 @@ async function fetchBlogPosts(
             articles(first: 250) {
               edges {
                 node {
-                  handle title contentHtml isPublished publishedAt
+                  handle title body isPublished publishedAt
                   author { name }
                   tags
                 }
@@ -735,7 +735,7 @@ async function fetchBlogPosts(
         for (const { node: a } of articles) {
           const authorName = ((a.author as Record<string, string>)?.name) ?? "";
           rows.push(["MERGE", blog.handle, blog.title, a.handle, a.title,
-            a.contentHtml ?? "", authorName,
+            a.body ?? "", authorName,
             Array.isArray(a.tags) ? (a.tags as string[]).join(", ") : "",
             a.isPublished ? "true" : "false", a.publishedAt ?? ""]);
         }

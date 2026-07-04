@@ -28,7 +28,7 @@ services:
     value: REPLACE_ME   # set after first deploy e.g. https://ymatrixify.ondigitalocean.app
   - key: SCOPES
     scope: RUN_AND_BUILD_TIME
-    value: "read_products,write_products,read_customers,write_customers,read_orders,read_inventory,write_inventory,read_draft_orders,write_draft_orders,read_content,write_content,read_discounts,write_discounts"
+    value: "read_products,write_products,read_customers,write_customers,read_orders,write_orders,read_inventory,write_inventory,read_locations,read_draft_orders,write_draft_orders,read_content,write_content,read_discounts,write_discounts,read_online_store_navigation,write_online_store_navigation"
   # Database — injected automatically from the db component below
   - key: DATABASE_URL
     scope: RUN_AND_BUILD_TIME
