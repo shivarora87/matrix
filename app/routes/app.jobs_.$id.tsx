@@ -52,17 +52,20 @@ export default function JobDetailPage() {
         throw new Error(`Download failed: HTTP ${res.status} ${res.statusText}${bodyText ? ` — ${bodyText.slice(0, 200)}` : ""}`);
       }
       const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
+      // Wrap the blob in a File so Chrome names the download after the real
+      // export filename instead of the object URL's UUID. Navigating the
+      // popup to the object URL is the PROVEN download mechanism here —
+      // do not replace it with anchor-click variants (they get interfered
+      // with inside the embedded iframe).
+      const file = new File([blob], downloadFilename, { type: blob.type });
+      const url = URL.createObjectURL(file);
       if (popup) {
-        // Trigger the save from inside the popup with a named anchor —
-        // navigating the popup straight to the blob URL downloads the file
-        // under the blob's UUID instead of the real filename.
-        const a = popup.document.createElement("a");
-        a.href = url;
-        a.download = downloadFilename;
-        popup.document.body.appendChild(a);
-        a.click();
-        setTimeout(() => popup.close(), 500);
+        popup.location.href = url;
+        // The download starts immediately (the blob is local); close the
+        // helper tab shortly after so the user isn't left with a blank tab.
+        setTimeout(() => {
+          try { popup.close(); } catch { /* already closed */ }
+        }, 2000);
       } else {
         throw new Error("Your browser blocked the download tab — please allow pop-ups for this site and try again.");
       }
