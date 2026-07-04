@@ -28,6 +28,48 @@ export default function App() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  // Guarantee every same-origin /app and /api fetch carries a session token.
+  // App Bridge is supposed to patch window.fetch itself, but its patching is
+  // conditional on frame-registration internals and demonstrably was not
+  // engaging here — React Router's loader-data fetches went out without an
+  // Authorization header, the server answered them with the auth bounce
+  // page, and the app crashed to a bare "200" error screen on every
+  // client-side navigation. shopify.idToken() is App Bridge's documented
+  // public API for fetching a fresh session token; wrapping fetch with it
+  // makes authentication deterministic instead of dependent on App Bridge's
+  // ambient behavior. If App Bridge's own patch also runs, it sees the
+  // Authorization header already present and skips — no conflict.
+  useEffect(() => {
+    const original = window.fetch;
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      try {
+        const urlStr =
+          typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+        const url = new URL(urlStr, window.location.origin);
+        const needsAuth =
+          url.origin === window.location.origin &&
+          (url.pathname.startsWith("/app") || url.pathname.startsWith("/api"));
+        const shopifyGlobal = (window as unknown as { shopify?: { idToken?: () => Promise<string> } }).shopify;
+        if (needsAuth && shopifyGlobal?.idToken) {
+          const token = await shopifyGlobal.idToken();
+          const headers = new Headers(
+            init?.headers ?? (input instanceof Request ? input.headers : undefined),
+          );
+          if (!headers.has("Authorization")) {
+            headers.set("Authorization", `Bearer ${token}`);
+          }
+          init = { ...init, headers };
+        }
+      } catch {
+        // fall through to the unmodified request
+      }
+      return original(input, init);
+    };
+    return () => {
+      window.fetch = original;
+    };
+  }, []);
+
   return (
     <AppProvider embedded apiKey={apiKey}>
       <s-app-nav>
