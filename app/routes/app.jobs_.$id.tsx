@@ -54,7 +54,15 @@ export default function JobDetailPage() {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       if (popup) {
-        popup.location.href = url;
+        // Trigger the save from inside the popup with a named anchor —
+        // navigating the popup straight to the blob URL downloads the file
+        // under the blob's UUID instead of the real filename.
+        const a = popup.document.createElement("a");
+        a.href = url;
+        a.download = downloadFilename;
+        popup.document.body.appendChild(a);
+        a.click();
+        setTimeout(() => popup.close(), 500);
       } else {
         throw new Error("Your browser blocked the download tab — please allow pop-ups for this site and try again.");
       }
