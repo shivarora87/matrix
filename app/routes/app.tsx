@@ -9,12 +9,19 @@ import { ensureSchedulerStarted } from "../scheduler.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   ensureSchedulerStarted();
-  await authenticate.admin(request);
-  return { apiKey: process.env.SHOPIFY_API_KEY || "" };
+  const { session } = await authenticate.admin(request);
+  const storeSlug = session.shop.replace(".myshopify.com", "");
+  return {
+    apiKey: process.env.SHOPIFY_API_KEY || "",
+    // Base admin URL for top-frame navigation — admin always re-frames the
+    // app with a fresh id_token, so document loads via this URL are the one
+    // navigation path that reliably authenticates.
+    adminBase: `https://admin.shopify.com/store/${storeSlug}/apps/excel-import-export`,
+  };
 };
 
 export default function App() {
-  const { apiKey } = useLoaderData<typeof loader>();
+  const { apiKey, adminBase } = useLoaderData<typeof loader>();
 
   // Render route content only after client mount. The Polaris web-component
   // and App Bridge scripts mutate the DOM while React is hydrating, which
@@ -69,6 +76,49 @@ export default function App() {
       window.fetch = original;
     };
   }, []);
+
+  // Route ALL in-app navigation through the TOP admin frame instead of SPA
+  // navigation. App Bridge intercepts link clicks and fires shopify:navigate;
+  // the SDK's AppProvider turns that into a React Router SPA navigation whose
+  // loader-data fetch depends on App Bridge attaching a session token — which
+  // demonstrably does not happen in this app, yielding the auth-bounce "200"
+  // crash on every internal link. Navigating window.top to the admin URL
+  // instead makes Shopify re-frame the app with a fresh id_token — the one
+  // navigation path that has always authenticated reliably. Capture phase +
+  // stopImmediatePropagation preempts the SDK's own bubble-phase handler.
+  useEffect(() => {
+    // Expose for other routes (e.g. post-export redirect in app._index).
+    (window as unknown as { __adminNavigate?: (path: string) => void }).__adminNavigate = (
+      path: string,
+    ) => {
+      window.open(`${adminBase}${path}`, "_top");
+    };
+
+    const navHandler = (event: Event) => {
+      const href = (event.target as HTMLElement | null)?.getAttribute?.("href");
+      if (!href || !href.startsWith("/")) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.open(`${adminBase}${href}`, "_top");
+    };
+
+    const clickHandler = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey) return;
+      const anchor = (event.target as HTMLElement | null)?.closest?.("a[href^='/app']");
+      const href = anchor?.getAttribute("href");
+      if (!href) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.open(`${adminBase}${href}`, "_top");
+    };
+
+    document.addEventListener("shopify:navigate", navHandler, true);
+    document.addEventListener("click", clickHandler, true);
+    return () => {
+      document.removeEventListener("shopify:navigate", navHandler, true);
+      document.removeEventListener("click", clickHandler, true);
+    };
+  }, [adminBase]);
 
   return (
     <AppProvider embedded apiKey={apiKey}>

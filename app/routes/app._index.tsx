@@ -180,18 +180,27 @@ export default function HomePage() {
   const isExporting = exportFetcher.state !== "idle";
   const isImporting = importFetcher.state !== "idle";
 
+  // Navigate the TOP admin frame to the job page (admin re-frames the app
+  // with a fresh id_token) — SPA navigation's loader fetch is unauthenticated
+  // in this app and crashes to the auth-bounce "200" screen.
+  const adminNavigate = (path: string) => {
+    const nav = (window as unknown as { __adminNavigate?: (p: string) => void }).__adminNavigate;
+    if (nav) nav(path);
+    else navigate(path);
+  };
+
   useEffect(() => {
     const data = exportFetcher.data;
     if (data && "jobId" in data) {
       setShowExportForm(false);
-      navigate(`/app/jobs/${data.jobId}`);
+      adminNavigate(`/app/jobs/${data.jobId}`);
     }
   }, [exportFetcher.data]);
 
   useEffect(() => {
     const data = importFetcher.data;
     if (data && "jobId" in data) {
-      navigate(`/app/jobs/${data.jobId}`);
+      adminNavigate(`/app/jobs/${data.jobId}`);
     }
   }, [importFetcher.data]);
 
